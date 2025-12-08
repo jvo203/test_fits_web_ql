@@ -51,6 +51,7 @@ pub struct UserParams {
 }
 
 mod fits;
+mod server;
 
 fn main() {
     println!("Testing FITSWebQL v4 Rust-x265 interface.");
