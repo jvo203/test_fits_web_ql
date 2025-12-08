@@ -9,10 +9,46 @@ extern crate ispc;
 // Functions exported from ispc will be callable under spmd::*
 ispc_module!(spmd);
 
+#[macro_use]
+extern crate scan_fmt;
+
+#[macro_use]
+extern crate lazy_static;
+
+#[macro_use]
+extern crate serde_json;
+
 use std::{env, ptr};
 use vpx_sys::*;
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+//FITS datasets
+lazy_static! {
+    static ref DATASETS: Arc<RwLock<HashMap<String, Arc<RwLock<Box<fits::FITS>>>>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+}
+
+pub struct UserParams {
+    pmin: f32,
+    pmax: f32,
+    lmin: f32,
+    lmax: f32,
+    black: f32,
+    white: f32,
+    median: f32,
+    sensitivity: f32,
+    ratio_sensitivity: f32,
+    flux: String,
+    start: usize,
+    end: usize,
+    mask: Vec<u8>,
+    pixels: Vec<f32>,
+}
 
 mod fits;
 
