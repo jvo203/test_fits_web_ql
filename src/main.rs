@@ -83,7 +83,6 @@ async fn main() {
 
     let dataid = "test_fits".to_string();
     let server = server::SessionServer::default().start();
-
     let fits = fits::FITS::from_path(
         &dataid,
         &"".to_owned(),
@@ -91,6 +90,8 @@ async fn main() {
         &"".to_owned(),
         &server,
     );
+
+    // TO-DO: x265 video encoding test...
 }
 
 fn vpx_codec_enc_config_init() -> vpx_codec_enc_cfg_t {
