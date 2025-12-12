@@ -18,7 +18,7 @@ extern crate lazy_static;
 #[macro_use]
 extern crate serde_json;
 
-use std::{env, ptr};
+use std::{env, path, ptr};
 use vpx_sys::*;
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -26,6 +26,8 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use actix::Actor;
 
 //FITS datasets
 lazy_static! {
@@ -53,7 +55,8 @@ pub struct UserParams {
 mod fits;
 mod server;
 
-fn main() {
+#[actix_web::main]
+async fn main() {
     println!("Testing FITSWebQL v4 Rust-x265 interface.");
 
     // first get the home directory as String
@@ -71,6 +74,15 @@ fn main() {
         home_dir
     );
     println!("Test file path: {}", test_file_path);
+
+    let filepath = std::path::PathBuf::from(test_file_path);
+    if !filepath.exists() {
+        eprintln!("Test FITS file does not exist: {:?}", filepath);
+        return;
+    }
+
+    let dataid = "test_fits".to_string();
+    let server = server::SessionServer::default().start();
 }
 
 fn vpx_codec_enc_config_init() -> vpx_codec_enc_cfg_t {
