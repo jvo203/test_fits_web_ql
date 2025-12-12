@@ -83,6 +83,14 @@ async fn main() {
 
     let dataid = "test_fits".to_string();
     let server = server::SessionServer::default().start();
+
+    let fits = fits::FITS::from_path(
+        &dataid,
+        &"".to_owned(),
+        filepath.as_path(),
+        &"".to_owned(),
+        &server,
+    );
 }
 
 fn vpx_codec_enc_config_init() -> vpx_codec_enc_cfg_t {
