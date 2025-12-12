@@ -25,8 +25,10 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::fs::File;
 use std::sync::Arc;
+use std::time::Instant;
 use uuid::Uuid;
 
 use actix::{Actor, Addr};
@@ -62,6 +64,15 @@ mod server;
 use crate::kalman::KalmanFilter;
 
 const PROGRESS_INTERVAL: u64 = 250; //[ms]
+
+#[derive(Encode, Debug)]
+pub struct WsFrame {
+    pub ts: f32,
+    pub seq_id: u32,
+    pub msg_type: u32,
+    pub elapsed: f32,
+    pub frame: Vec<u8>,
+}
 
 #[actix_web::main]
 async fn main() {
@@ -100,18 +111,6 @@ async fn main() {
     );
 
     // a x265 video encoding test...
-    // create a thread pool
-    let num_threads = num_cpus::get_physical();
-    let pool = match rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build()
-    {
-        Ok(pool) => Some(pool),
-        Err(err) => {
-            println!("{:?}, switching to a global rayon pool", err);
-            None
-        }
-    };
 
     // set up the dimensions
     let width = 1024; // a dummy width
@@ -119,21 +118,86 @@ async fn main() {
     let depth = fits.depth; // the number of FITS planes (frames)
 
     println!(
-        "HEVC width: {}, height: {}, depth (number of frames): {}, thread pool: {}",
-        width, height, depth, num_threads
+        "HEVC width: {}, height: {}, depth (number of frames): {}",
+        width, height, depth
     );
 
     // id: a Vector of String
     let id = vec![dataid.to_string()];
 
     // create a user session
-    let session = UserSession::new(server.clone(), &id);
+    let mut session = UserSession::new(server.clone(), &id);
     session.width = width;
     session.height = height;
+    let flux = "logistic".to_string();
+    let target_bitrate = 2000; //kbps
+    let fps = 60;
+    let mut seq_id: i32 = 0;
+    let is_composite = false;
+
+    //HEVC config
+    //alloc HEVC params
+    if session.param.is_null() {
+        session.param = unsafe { x265_param_alloc() };
+        unsafe {
+            //x265_param_default_preset(session.param, CString::new("ultrafast").unwrap().as_ptr(), CString::new("fastdecode").unwrap().as_ptr());
+
+            let tune = CString::new("zerolatency").unwrap();
+
+            /*let tune = if fits.telescope.contains("kiso") {
+                CString::new("grain").unwrap()
+            } else {
+                CString::new("zerolatency").unwrap()
+            };*/
+
+            if session.dataset_id.len() == 1 || !is_composite {
+                let preset = CString::new("superfast").unwrap();
+                x265_param_default_preset(session.param, preset.as_ptr(), tune.as_ptr());
+            } else {
+                let preset = CString::new("ultrafast").unwrap();
+                x265_param_default_preset(session.param, preset.as_ptr(), tune.as_ptr());
+            }
+
+            (*session.param).fpsNum = fps as u32;
+            (*session.param).fpsDenom = 1;
+        };
+    }
+
+    unsafe {
+        (*session.param).bRepeatHeaders = 1;
+
+        if session.dataset_id.len() > 1 && is_composite {
+            (*session.param).internalCsp = X265_CSP_I444 as i32;
+        } else {
+            (*session.param).internalCsp = X265_CSP_I400 as i32;
+        }
+
+        (*session.param).internalBitDepth = 8;
+        (*session.param).sourceWidth = width as i32;
+        (*session.param).sourceHeight = height as i32;
+
+        //constant bitrate
+        (*session.param).rc.rateControlMode = X265_RC_METHODS_X265_RC_CRF as i32;
+        (*session.param).rc.bitrate = target_bitrate; //1000;
+    };
+
+    if session.pic.is_null() {
+        session.pic = unsafe { x265_picture_alloc() };
+    }
+
+    if session.enc.is_null() {
+        session.enc = unsafe { x265_encoder_open(session.param) }; //x265_encoder_open_160 for x265 2.8
+        unsafe { x265_picture_init(session.param, session.pic) };
+    }
+
+    //start a video creation event loop
+    session.streaming = true;
 
     //HEVC (x265) encoding test
     for frame_idx in 0..depth {
         println!("Encoding frame {}/{}", frame_idx + 1, depth);
+
+        let watch = Instant::now();
 
         match fits.get_video_frame(
             frame_idx,
@@ -191,8 +255,11 @@ async fn main() {
                             std::slice::from_raw_parts(unit.payload, unit.sizeBytes as usize)
                         };
 
+                        let timestamp = std::time::Instant::now();
+                        seq_id += 1;
+
                         let ws_frame = WsFrame {
-                            ts: timestamp as f32,
+                            ts: timestamp.elapsed().as_millis() as f32,
                             seq_id: seq_id as u32,
                             msg_type: 5, //an hevc video frame
                             //length: video_frame.len() as u32,
