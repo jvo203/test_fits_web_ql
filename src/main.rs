@@ -91,7 +91,32 @@ async fn main() {
         &server,
     );
 
-    // TO-DO: x265 video encoding test...
+    // a x265 video encoding test...
+    // create a thread pool
+    let num_threads = num_cpus::get_physical();
+    let pool = match rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+    {
+        Ok(pool) => Some(pool),
+        Err(err) => {
+            println!("{:?}, switching to a global rayon pool", err);
+            None
+        }
+    };
+
+    // get the depth dimension
+    let depth = fits.depth;
+
+    println!(
+        "FITS depth (number of frames): {}, thread pool: {}",
+        depth, num_threads
+    );
+
+    //HEVC (x265) encoding test
+    for frame_idx in 0..depth {
+        println!("Encoding frame {}/{}", frame_idx + 1, depth);
+    }
 }
 
 fn vpx_codec_enc_config_init() -> vpx_codec_enc_cfg_t {
