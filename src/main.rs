@@ -25,9 +25,12 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::fs::File;
 use std::sync::Arc;
+use uuid::Uuid;
 
-use actix::Actor;
+use actix::{Actor, Addr};
+use bincode::{Encode, config, encode_to_vec};
 
 //FITS datasets
 lazy_static! {
@@ -53,7 +56,12 @@ pub struct UserParams {
 }
 
 mod fits;
+mod kalman;
 mod server;
+
+use crate::kalman::KalmanFilter;
+
+const PROGRESS_INTERVAL: u64 = 250; //[ms]
 
 #[actix_web::main]
 async fn main() {
@@ -105,17 +113,116 @@ async fn main() {
         }
     };
 
-    // get the depth dimension
-    let depth = fits.depth;
+    // set up the dimensions
+    let width = 1024; // a dummy width
+    let height = 768; // a dummy height
+    let depth = fits.depth; // the number of FITS planes (frames)
 
     println!(
-        "FITS depth (number of frames): {}, thread pool: {}",
-        depth, num_threads
+        "HEVC width: {}, height: {}, depth (number of frames): {}, thread pool: {}",
+        width, height, depth, num_threads
     );
+
+    // id: a Vector of String
+    let id = vec![dataid.to_string()];
+
+    // create a user session
+    let session = UserSession::new(server.clone(), &id);
+    session.width = width;
+    session.height = height;
 
     //HEVC (x265) encoding test
     for frame_idx in 0..depth {
         println!("Encoding frame {}/{}", frame_idx + 1, depth);
+
+        match fits.get_video_frame(
+            frame_idx,
+            session.width,
+            session.height,
+            &flux,
+            &session.pool,
+        ) {
+            Some(mut y) => {
+                unsafe {
+                    (*session.pic).stride[0] = session.width as i32;
+                    (*session.pic).planes[0] = y.as_mut_ptr() as *mut std::os::raw::c_void;
+                    //adaptive bitrate
+                    (*session.param).rc.bitrate = target_bitrate;
+                }
+
+                let ret = unsafe { x265_encoder_reconfig(session.enc, session.param) };
+
+                if ret < 0 {
+                    println!("x265: error changing the bitrate");
+                }
+
+                let mut nal_count: u32 = 0;
+                let mut p_nal: *mut x265_nal = ptr::null_mut();
+                let p_out: *mut x265_picture = ptr::null_mut();
+
+                //encode
+                let ret = unsafe {
+                    x265_encoder_encode(session.enc, &mut p_nal, &mut nal_count, session.pic, p_out)
+                };
+
+                println!(
+                    "x265 hevc video frame prepare/encode time: {:?}, speed {} frames per second, ret = {}, nal_count = {}",
+                    watch.elapsed(),
+                    1000000000 / watch.elapsed().as_nanos(),
+                    ret,
+                    nal_count
+                );
+
+                //y falls out of scope
+                unsafe {
+                    (*session.pic).stride[0] = 0 as i32;
+                    (*session.pic).planes[0] = ptr::null_mut();
+                }
+
+                //process all NAL units one by one
+                if nal_count > 0 {
+                    let nal_units =
+                        unsafe { std::slice::from_raw_parts(p_nal, nal_count as usize) };
+
+                    for unit in nal_units {
+                        println!("NAL unit type: {}, size: {}", unit.type_, unit.sizeBytes);
+
+                        let payload = unsafe {
+                            std::slice::from_raw_parts(unit.payload, unit.sizeBytes as usize)
+                        };
+
+                        let ws_frame = WsFrame {
+                            ts: timestamp as f32,
+                            seq_id: seq_id as u32,
+                            msg_type: 5, //an hevc video frame
+                            //length: video_frame.len() as u32,
+                            elapsed: watch.elapsed().as_millis() as f32,
+                            frame: payload.to_vec(),
+                        };
+
+                        match encode_to_vec(&ws_frame, config::legacy()) {
+                            Ok(bin) => {
+                                println!("WsFrame binary length: {}", bin.len());
+                                //println!("{}", bin);
+                                //ctx.binary(bin);
+                            }
+                            Err(err) => println!(
+                                "error serializing a WebSocket video frame response: {}",
+                                err
+                            ),
+                        }
+
+                        /*match session.hevc {
+                            Ok(ref mut file) => {
+                                let _ = file.write_all(payload);
+                            }
+                            Err(_) => {}
+                        }*/
+                    }
+                }
+            }
+            None => {}
+        }
     }
 }
 
@@ -188,5 +295,140 @@ fn vpx_codec_enc_config_init() -> vpx_codec_enc_cfg_t {
         rd_mult_inter_qp_fac: vpx_rational { num: 0, den: 0 },
         rd_mult_arf_qp_fac: vpx_rational { num: 0, den: 0 },
         rd_mult_key_qp_fac: vpx_rational { num: 0, den: 0 },
+    }
+}
+
+struct UserSession {
+    addr: Addr<server::SessionServer>,
+    dataset_id: Vec<String>,
+    session_id: Uuid,
+    pool: Option<rayon::ThreadPool>,
+    user: Option<UserParams>,
+    timestamp: std::time::Instant,          //inactivity timeout
+    progress_timestamp: std::time::Instant, //WebSocket progress timestamp
+    log: std::io::Result<File>,
+    wasm: bool,
+    //hevc: std::io::Result<File>,
+    cfg: vpx_codec_enc_cfg_t, //VP9 encoder config
+    ctx: vpx_codec_ctx_t,     //VP9 encoder context
+    param: *mut x265_param,   //HEVC param
+    enc: *mut x265_encoder,   //HEVC context
+    pic: *mut x265_picture,   //HEVC picture
+    //config: EncoderConfig,
+    width: u32,
+    height: u32,
+    streaming: bool,
+    last_video_frame: i32,
+    video_frame: f64,
+    video_ref_freq: f64,
+    video_fps: f64,
+    video_seq_id: i32,
+    video_timestamp: std::time::Instant,
+    bitrate: i32,
+    kf: KalmanFilter,
+}
+
+impl UserSession {
+    pub fn new(addr: Addr<server::SessionServer>, id: &Vec<String>) -> UserSession {
+        let uuid = Uuid::new_v4();
+
+        #[cfg(not(feature = "jvo"))]
+        let filename = format!("/dev/null");
+
+        #[cfg(feature = "jvo")]
+        let filename = format!("{}/{}_{}.log", LOG_DIRECTORY, id[0].replace("/", "_"), uuid);
+
+        let log = File::create(filename);
+
+        /*#[cfg(not(feature = "jvo"))]
+        let filename = format!("/dev/null");
+
+        #[cfg(feature = "jvo")]
+        let filename = format!(
+            "{}/{}_{}.hevc",
+            LOG_DIRECTORY,
+            id[0].replace("/", "_"),
+            uuid
+        );
+
+        let hevc = File::create(filename);*/
+
+        let num_threads = num_cpus::get_physical();
+        let pool = match rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .build()
+        {
+            Ok(pool) => Some(pool),
+            Err(err) => {
+                println!("{:?}, switching to a global rayon pool", err);
+                None
+            }
+        };
+
+        let session = UserSession {
+            addr: addr.clone(),
+            dataset_id: id.clone(),
+            session_id: uuid,
+            pool: pool,
+            user: None,
+            timestamp: std::time::Instant::now(), //SpawnHandle::default(),
+            progress_timestamp: std::time::Instant::now()
+                - std::time::Duration::from_millis(PROGRESS_INTERVAL),
+            log: log,
+            wasm: false,
+            //hevc: hevc,
+            //cfg: vpx_codec_enc_cfg::default(),
+            cfg: vpx_codec_enc_config_init(),
+            ctx: vpx_codec_ctx_t {
+                name: ptr::null(),
+                iface: ptr::null_mut(),
+                err: VPX_CODEC_OK,
+                err_detail: ptr::null(),
+                init_flags: 0,
+                config: vpx_codec_ctx__bindgen_ty_1 { enc: ptr::null() },
+                priv_: ptr::null_mut(),
+            },
+            param: ptr::null_mut(),
+            enc: ptr::null_mut(),
+            pic: ptr::null_mut(),
+            //config: EncoderConfig::default(),
+            width: 0,
+            height: 0,
+            streaming: false,
+            last_video_frame: -1,
+            video_frame: 0.0,
+            video_ref_freq: 0.0,
+            video_fps: 10.0,
+            video_seq_id: 0,
+            video_timestamp: std::time::Instant::now(),
+            bitrate: 1000,
+            kf: KalmanFilter::default(),
+        };
+
+        println!("allocating a new websocket session for {}", id[0]);
+
+        session
+    }
+}
+
+impl Drop for UserSession {
+    fn drop(&mut self) {
+        println!("dropping a websocket session for {}", self.dataset_id[0]);
+
+        unsafe { vpx_codec_destroy(&mut self.ctx) };
+
+        unsafe {
+            if !self.param.is_null() {
+                x265_param_free(self.param);
+            }
+
+            if !self.enc.is_null() {
+                x265_encoder_close(self.enc);
+            }
+
+            if !self.pic.is_null() {
+                x265_picture_free(self.pic);
+            }
+        }
     }
 }
