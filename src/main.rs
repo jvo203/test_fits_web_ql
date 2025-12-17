@@ -452,7 +452,7 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
 
     //HEVC (x265) encoding test
     //for frame_idx in 0..depth {
-    for frame_idx in depth/2..depth/2+10 {
+    for frame_idx in depth/2..depth/2+1 {
         println!("Encoding frame {}/{}", frame_idx + 1, depth);
 
         let watch = Instant::now();
