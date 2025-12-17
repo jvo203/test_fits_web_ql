@@ -529,6 +529,9 @@ export void data_to_luminance_f16_linear(uniform int16 cubeData[], uniform unsig
 
 export void data_to_luminance_f16_logistic(uniform int16 cubeData[], uniform unsigned int8 mask[], uniform float bzero, uniform float bscale, uniform float median, uniform float sensitivity, uniform unsigned int8 pixels[],  uniform unsigned int total_size)
 {
+    // print the median and sensitivity values for debugging
+    print("spmd::data_to_luminance_f16_logistic median: %, sensitivity: %\n", median, sensitivity);
+
   foreach(j=0 ... total_size)
   {
     cif(mask[j] > 0)
