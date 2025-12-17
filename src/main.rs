@@ -119,7 +119,7 @@ async fn main() {
 
     //hevc_test(server.clone(), id);
 
-    let no_threads = 4;
+    let no_threads = 1;
 
     let handles: Vec<std::thread::JoinHandle<()>> = (0..no_threads)
         .map(|_| {
@@ -451,7 +451,8 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
     session.streaming = true;
 
     //HEVC (x265) encoding test
-    for frame_idx in 0..depth {
+    //for frame_idx in 0..depth {
+    for frame_idx in depth/2..depth/2+10 {
         println!("Encoding frame {}/{}", frame_idx + 1, depth);
 
         let watch = Instant::now();
