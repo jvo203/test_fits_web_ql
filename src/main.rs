@@ -380,11 +380,11 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
     }
 
     // set up the dimensions
-    //let width = 1024; // a dummy width
-    //let height = 768; // a dummy height
+    let width = 1024; // a dummy width
+    let height = 768; // a dummy height
     // force downsizing
-    let width = (fits.width / 2) as u32;
-    let height = (fits.height / 2) as u32;
+    //let width = (fits.width / 2) as u32;
+    //let height = (fits.height / 2) as u32;
     let depth = fits.depth; // the number of FITS planes (frames)
 
     println!(
@@ -462,7 +462,7 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
 
     //HEVC (x265) encoding test
     for frame_idx in 0..depth {
-        //for frame_idx in depth / 2..depth / 2 + 1 {
+        //for frame_idx in depth / 2..depth / 2 + 10 {
         println!("Encoding frame {}/{}", frame_idx + 1, depth);
 
         let watch = Instant::now();
