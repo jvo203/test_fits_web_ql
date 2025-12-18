@@ -27,6 +27,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
 use std::time::SystemTime;
@@ -65,6 +66,8 @@ mod server;
 use crate::kalman::KalmanFilter;
 
 const PROGRESS_INTERVAL: u64 = 250; //[ms]
+
+static LOG_DIRECTORY: &'static str = "/tmp";
 
 #[derive(Encode, Debug)]
 pub struct WsFrame {
@@ -113,6 +116,13 @@ async fn main() {
 
     let fits = Arc::new(RwLock::new(Box::new(fits)));
     DATASETS.write().insert(dataid.clone(), fits.clone());
+
+    if fits.read().has_data {
+        fits.read().make_data_histogram();
+    } else {
+        eprintln!("FITS file has no data: {:?}", filepath);
+        return;
+    }
 
     // id: a Vector of String
     let id = vec![dataid.to_string()];
@@ -220,7 +230,7 @@ struct UserSession {
     progress_timestamp: std::time::Instant, //WebSocket progress timestamp
     log: std::io::Result<File>,
     wasm: bool,
-    //hevc: std::io::Result<File>,
+    hevc: std::io::Result<File>,
     cfg: vpx_codec_enc_cfg_t, //VP9 encoder config
     ctx: vpx_codec_ctx_t,     //VP9 encoder context
     param: *mut x265_param,   //HEVC param
@@ -252,10 +262,7 @@ impl UserSession {
 
         let log = File::create(filename);
 
-        /*#[cfg(not(feature = "jvo"))]
-        let filename = format!("/dev/null");
-
-        #[cfg(feature = "jvo")]
+        //let filename = format!("/dev/null");
         let filename = format!(
             "{}/{}_{}.hevc",
             LOG_DIRECTORY,
@@ -263,7 +270,7 @@ impl UserSession {
             uuid
         );
 
-        let hevc = File::create(filename);*/
+        let hevc = File::create(filename);
 
         let num_threads = num_cpus::get_physical();
         let pool = match rayon::ThreadPoolBuilder::new()
@@ -288,7 +295,7 @@ impl UserSession {
                 - std::time::Duration::from_millis(PROGRESS_INTERVAL),
             log: log,
             wasm: false,
-            //hevc: hevc,
+            hevc: hevc,
             //cfg: vpx_codec_enc_cfg::default(),
             cfg: vpx_codec_enc_config_init(),
             ctx: vpx_codec_ctx_t {
@@ -373,8 +380,11 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
     }
 
     // set up the dimensions
-    let width = 1024; // a dummy width
-    let height = 768; // a dummy height
+    //let width = 1024; // a dummy width
+    //let height = 768; // a dummy height
+    // force downsizing
+    let width = (fits.width / 2) as u32;
+    let height = (fits.height / 2) as u32;
     let depth = fits.depth; // the number of FITS planes (frames)
 
     println!(
@@ -386,7 +396,7 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
     let mut session = UserSession::new(server, &id);
     session.width = width;
     session.height = height;
-    let flux = "logistic".to_string();
+    let flux = "".to_string();
     let target_bitrate = 2000; //kbps
     let fps = 60;
     let mut seq_id: i32 = 0;
@@ -451,8 +461,8 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
     session.streaming = true;
 
     //HEVC (x265) encoding test
-    //for frame_idx in 0..depth {
-    for frame_idx in depth/2..depth/2+1 {
+    for frame_idx in 0..depth {
+        //for frame_idx in depth / 2..depth / 2 + 1 {
         println!("Encoding frame {}/{}", frame_idx + 1, depth);
 
         let watch = Instant::now();
@@ -537,12 +547,12 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
                             ),
                         }
 
-                        /*match session.hevc {
+                        match session.hevc {
                             Ok(ref mut file) => {
                                 let _ = file.write_all(payload);
                             }
                             Err(_) => {}
-                        }*/
+                        }
                     }
                 }
             }

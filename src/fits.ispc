@@ -529,9 +529,6 @@ export void data_to_luminance_f16_linear(uniform int16 cubeData[], uniform unsig
 
 export void data_to_luminance_f16_logistic(uniform int16 cubeData[], uniform unsigned int8 mask[], uniform float bzero, uniform float bscale, uniform float median, uniform float sensitivity, uniform unsigned int8 pixels[],  uniform unsigned int total_size)
 {
-    // print the median and sensitivity values for debugging
-    print("spmd::data_to_luminance_f16_logistic median: %, sensitivity: %\n", median, sensitivity);
-
   foreach(j=0 ... total_size)
   {
     cif(mask[j] > 0)
@@ -634,7 +631,7 @@ export void rgb_to_yuv(uniform unsigned int8 _r[], uniform unsigned int8 _g[], u
     //ITU-R
     float Y = 0.299f * r + 0.587f * g + 0.114f * b;
     float Cb = -0.169f * r - 0.331f * g + 0.499f * b + 128.0f;
-    float Cr = 0.499f * r - 0.418f * g - 0.0813 * b + 128f;
+    float Cr = 0.499f * r - 0.418f * g - 0.0813f * b + 128.0f;
 
     _r[j] = clamp((int)Y, 0, 255);
     _g[j] = clamp((int)Cb, 0, 255);
