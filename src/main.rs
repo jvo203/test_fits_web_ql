@@ -81,9 +81,9 @@ pub struct WsFrame {
 }
 
 #[actix_web::main]
-async fn main() -> Result<(), ffmpeg::Error> {
+async fn main() {
     // Register all components (codecs, formats, etc.)
-    ffmpeg::init()?;
+    ffmpeg::init();
 
     println!("Testing FITSWebQL v4 Rust-x265 interface.");
 
@@ -159,9 +159,7 @@ async fn main() -> Result<(), ffmpeg::Error> {
     //tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // stop actix runtime / system
-    actix::System::current().stop();
-
-     Ok(())
+    actix::System::current().stop();     
 }
 
 fn vpx_codec_enc_config_init() -> vpx_codec_enc_cfg_t {
