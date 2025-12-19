@@ -688,15 +688,7 @@ fn ffmpeg_test(server: Addr<server::SessionServer>, id: Vec<String>) {
             &session.pool,
         ) {
             Some(mut y) => {
-                /*unsafe {
-                    (*session.pic).stride[0] = session.width as i32;
-                    (*session.pic).planes[0] = y.as_mut_ptr() as *mut std::os::raw::c_void;
-                    //adaptive bitrate
-                    (*session.param).rc.bitrate = target_bitrate;
-                }*/
-
                 // copy the Y plane data
-                // let data = frame.data_mut(0);
                 for (i, data) in frame.data_mut(0).iter_mut().enumerate() {
                     *data = y[i];
                 }
@@ -715,7 +707,6 @@ fn ffmpeg_test(server: Addr<server::SessionServer>, id: Vec<String>) {
                 match encoder.send_frame(&frame) {
                     Ok(_) => {
                         // receive the encoded packets
-                        //let mut packet = ffmpeg::util::packet::Packet::empty();
                         let mut packet = Packet::empty();
                         while encoder.receive_packet(&mut packet).is_ok() {
                             println!(
