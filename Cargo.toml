@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["hevc", "ffmpeg"]
+default = ["hevc"]
 jvo = []
 use-intrinsics = []
 hevc = []
@@ -31,7 +31,7 @@ vpx = "1.11.0"
 thread-priority = "*"
 
 [dependencies]
-ffmpeg-next = "*"
+#ffmpeg-next = "*"
 mimalloc = "*"
 tikv-jemallocator = "0.6.1"
 tikv-jemalloc-sys = { version = "0.6.1", optional = true }

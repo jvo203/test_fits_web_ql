@@ -36,7 +36,10 @@ use uuid::Uuid;
 use actix::{Actor, Addr};
 use bincode::{Encode, config, encode_to_vec};
 
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next as ffmpeg;
+
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::Packet;
 
 //FITS datasets
@@ -141,7 +144,7 @@ async fn main() {
     let id = vec![dataid.to_string()];
 
     //#[cfg(feature = "hevc")]
-    //hevc_test(server.clone(), id.clone());
+    hevc_test(server.clone(), id.clone());
 
     #[cfg(feature = "ffmpeg")]
     ffmpeg_test(server.clone(), id.clone());
@@ -641,7 +644,11 @@ fn ffmpeg_test(server: Addr<server::SessionServer>, id: Vec<String>) {
 
     // FFmpeg config for HEVC encoding
     // use tune "zerolatency", preset "superfast"
-    let codec = ffmpeg::encoder::find(ffmpeg::codec::Id::HEVC).unwrap();
+    //let codec = ffmpeg::encoder::find(ffmpeg::codec::Id::HEVC).unwrap();
+    // demand the libx265 encoder
+    let codec = ffmpeg::encoder::find_by_name("libx265")
+        .expect("libx265 not available: build FFmpeg with --enable-libx265");
+
     let mut context = ffmpeg::codec::context::Context::new();
     let mut video = context.encoder().video().unwrap();
 
