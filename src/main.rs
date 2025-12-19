@@ -82,8 +82,14 @@ pub struct WsFrame {
 
 #[actix_web::main]
 async fn main() {
-    // Register all components (codecs, formats, etc.)
-    ffmpeg::init();
+    // Register all FFMPEG components (codecs, formats, etc.)
+    match ffmpeg::init() {
+        Ok(_) => println!("FFmpeg initialized successfully."),
+        Err(err) => {
+            eprintln!("Could not initialize FFmpeg: {}", err);
+            return;
+        }
+    }
 
     println!("Testing FITSWebQL v4 Rust-x265 interface.");
 
@@ -132,7 +138,7 @@ async fn main() {
     // id: a Vector of String
     let id = vec![dataid.to_string()];
 
-    hevc_test(server.clone(), id.clone());
+    //hevc_test(server.clone(), id.clone());
 
     /*let no_threads = 1;
 
@@ -159,7 +165,7 @@ async fn main() {
     //tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // stop actix runtime / system
-    actix::System::current().stop();     
+    actix::System::current().stop();
 }
 
 fn vpx_codec_enc_config_init() -> vpx_codec_enc_cfg_t {
@@ -476,7 +482,7 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
 
     //HEVC (x265) encoding test
     //for frame_idx in 0..depth {
-        for frame_idx in depth / 2..depth / 2 + 1 {
+    for frame_idx in depth / 2..depth / 2 + 1 {
         println!("Encoding frame {}/{}", frame_idx + 1, depth);
 
         let watch = Instant::now();
