@@ -143,13 +143,13 @@ async fn main() {
     // id: a Vector of String
     let id = vec![dataid.to_string()];
 
-    //#[cfg(feature = "hevc")]
+    /*//#[cfg(feature = "hevc")]
     hevc_test(server.clone(), id.clone());
 
     #[cfg(feature = "ffmpeg")]
-    ffmpeg_test(server.clone(), id.clone());
+    ffmpeg_test(server.clone(), id.clone());*/
 
-    /*let no_threads = 1;
+    let no_threads = 4;
 
     let handles: Vec<std::thread::JoinHandle<()>> = (0..no_threads)
         .map(|_| {
@@ -163,7 +163,7 @@ async fn main() {
 
     for handle in handles {
         handle.join().unwrap();
-    }*/
+    }
 
     println!("HEVC test completed.");
 
@@ -492,8 +492,8 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
     session.streaming = true;
 
     //HEVC (x265) encoding test
-    //for frame_idx in 0..depth {
-    for frame_idx in depth / 2..depth / 2 + 1 {
+    for frame_idx in 0..depth {
+        //for frame_idx in depth / 2..depth / 2 + 1 {
         println!("Encoding frame {}/{}", frame_idx + 1, depth);
 
         let watch = Instant::now();
