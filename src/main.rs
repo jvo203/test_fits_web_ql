@@ -637,4 +637,31 @@ fn ffmpeg_test(server: Addr<server::SessionServer>, id: Vec<String>) {
     let fps = 60;
     let mut seq_id: i32 = 0;
     let is_composite = false;
+
+    // FFmpeg config for HEVC encoding
+    // use tune "zerolatency", preset "superfast"
+    let codec = ffmpeg::encoder::find(ffmpeg::codec::Id::HEVC).unwrap();
+    let mut context = ffmpeg::codec::context::Context::new();
+    let mut encoder = context.encoder().video().unwrap();
+    encoder.set_width(session.width);
+    encoder.set_height(session.height);
+
+    //encoder.set_format(ffmpeg::format::Pixel::YUV420P);
+
+    // use I444 for composite images otherwise GRAY8
+    if session.dataset_id.len() > 1 && is_composite {
+        encoder.set_format(ffmpeg::format::Pixel::YUV444P);
+    } else {
+        encoder.set_format(ffmpeg::format::Pixel::GRAY8);
+    }
+
+    // set a constant bitrate control mode X265_RC_METHODS_X265_RC_CRF
+    //encoder.set_rate_control_mode(ffmpeg::codec::rate::Control::Constant);
+    //encoder.set_rate_control_mode(ffmpeg::codec::rate::Control::Variable);
+    encoder.set_bit_rate(target_bitrate * 1000);
+
+    encoder.set_frame_rate(Some(ffmpeg::Rational::new(fps, 1)));
+    encoder.set_time_base(ffmpeg::Rational::new(1, fps));
+    encoder.set_max_b_frames(0); // for low-latency
+    encoder.open_as(codec).unwrap();
 }
