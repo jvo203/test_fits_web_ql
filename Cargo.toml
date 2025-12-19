@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["hevc"]
+default = ["ffmpeg"]
 jvo = []
 use-intrinsics = []
 hevc = []
+ffmpeg = []
 vp9 = []
 cdn = []
 cuda = []
@@ -30,6 +31,7 @@ vpx = "1.11.0"
 thread-priority = "*"
 
 [dependencies]
+ffmpeg-next = "*"
 mimalloc = "*"
 tikv-jemallocator = "0.6.1"
 tikv-jemalloc-sys = { version = "0.6.1", optional = true }
@@ -38,7 +40,6 @@ actix = "0.13.5"
 actix-web = "4.12.0"
 actix-web-actors = "4.3.0"
 actix-files = "0.6.8"
-ffmpeg-next = "*"
 http = "*"
 serde_json = "*"
 chrono = "*"

@@ -83,6 +83,7 @@ pub struct WsFrame {
 #[actix_web::main]
 async fn main() {
     // Register all FFMPEG components (codecs, formats, etc.)
+    #[cfg(feature = "ffmpeg")]
     match ffmpeg::init() {
         Ok(_) => println!("FFmpeg initialized successfully."),
         Err(err) => {
@@ -138,7 +139,11 @@ async fn main() {
     // id: a Vector of String
     let id = vec![dataid.to_string()];
 
-    //hevc_test(server.clone(), id.clone());
+    #[cfg(feature = "hevc")]
+    hevc_test(server.clone(), id.clone());
+
+    #[cfg(feature = "ffmpeg")]
+    ffmpeg_test(server.clone(), id.clone());
 
     /*let no_threads = 1;
 
@@ -373,7 +378,9 @@ impl Drop for UserSession {
 }
 
 // create a separate function to stress-test the Rust-x265 interface (pass the cloned server and id)
+// only define if the "hevc" feature is enabled
 #[allow(dead_code)]
+#[cfg(feature = "hevc")]
 fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
     println!("Starting a separate HEVC test thread...");
 
@@ -579,4 +586,55 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
             None => {}
         }
     }
+}
+
+#[allow(dead_code)]
+#[cfg(feature = "ffmpeg")]
+fn ffmpeg_test(server: Addr<server::SessionServer>, id: Vec<String>) {
+    println!("Starting a separate FFmpeg test thread...");
+
+    // borrow the fits dataset
+    let datasets = DATASETS.read();
+    let fits = match datasets.get(&id[0]) {
+        Some(x) => x,
+        None => {
+            eprintln!("FITS dataset not found: {}", id[0]);
+            return;
+        }
+    };
+
+    let fits = match fits.try_read() {
+        Some(x) => x,
+        None => {
+            eprintln!("FITS dataset is busy: {}", id[0]);
+            return;
+        }
+    };
+
+    {
+        *fits.timestamp.write() = SystemTime::now();
+    }
+
+    // set up the dimensions
+    let width = 1024; // a dummy width
+    let height = 768; // a dummy height
+    // force downsizing
+    //let width = (fits.width / 2) as u32;
+    //let height = (fits.height / 2) as u32;
+    let depth = fits.depth; // the number of FITS planes (frames)
+
+    println!(
+        "FFmpeg width: {}, height: {}, depth (number of frames): {}",
+        width, height, depth
+    );
+
+    // create a user session
+    let mut session = UserSession::new(server, &id);
+    session.width = width;
+    session.height = height;
+    let flux = "".to_string();
+    let target_bitrate = 2000; //kbps
+    let fps = 60;
+    let mut seq_id: i32 = 0;
+    let is_composite = false;
 }
