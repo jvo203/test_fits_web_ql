@@ -140,8 +140,8 @@ async fn main() {
     // id: a Vector of String
     let id = vec![dataid.to_string()];
 
-    #[cfg(feature = "hevc")]
-    hevc_test(server.clone(), id.clone());
+    //#[cfg(feature = "hevc")]
+    //hevc_test(server.clone(), id.clone());
 
     #[cfg(feature = "ffmpeg")]
     ffmpeg_test(server.clone(), id.clone());
@@ -743,12 +743,12 @@ fn ffmpeg_test(server: Addr<server::SessionServer>, id: Vec<String>) {
                                         ),
                                     }
 
-                                    /*match session.hevc {
+                                    match session.hevc {
                                         Ok(ref mut file) => {
                                             let _ = file.write_all(payload);
                                         }
                                         Err(_) => {}
-                                    }*/
+                                    }
                                 }
                                 None => {
                                     println!("No payload in the encoded packet.");
