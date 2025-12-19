@@ -36,6 +36,8 @@ use uuid::Uuid;
 use actix::{Actor, Addr};
 use bincode::{Encode, config, encode_to_vec};
 
+use ffmpeg_next as ffmpeg;
+
 //FITS datasets
 lazy_static! {
     static ref DATASETS: Arc<RwLock<HashMap<String, Arc<RwLock<Box<fits::FITS>>>>>> =
@@ -79,7 +81,10 @@ pub struct WsFrame {
 }
 
 #[actix_web::main]
-async fn main() {
+async fn main() -> Result<(), ffmpeg::Error> {
+    // Register all components (codecs, formats, etc.)
+    ffmpeg::init()?;
+
     println!("Testing FITSWebQL v4 Rust-x265 interface.");
 
     // first get the home directory as String
@@ -155,6 +160,8 @@ async fn main() {
 
     // stop actix runtime / system
     actix::System::current().stop();
+
+     Ok(())
 }
 
 fn vpx_codec_enc_config_init() -> vpx_codec_enc_cfg_t {
