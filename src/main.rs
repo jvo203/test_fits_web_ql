@@ -127,9 +127,9 @@ async fn main() {
     // id: a Vector of String
     let id = vec![dataid.to_string()];
 
-    //hevc_test(server.clone(), id);
+    hevc_test(server.clone(), id.clone());
 
-    let no_threads = 1;
+    /*let no_threads = 1;
 
     let handles: Vec<std::thread::JoinHandle<()>> = (0..no_threads)
         .map(|_| {
@@ -143,9 +143,18 @@ async fn main() {
 
     for handle in handles {
         handle.join().unwrap();
-    }
+    }*/
 
     println!("HEVC test completed.");
+
+    // drop dataset references so Drop impls run (x265/vpx cleanup in UserSession::drop)
+    DATASETS.write().clear();
+
+    // give a short grace period for background drops/IO to finish
+    //tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // stop actix runtime / system
+    actix::System::current().stop();
 }
 
 fn vpx_codec_enc_config_init() -> vpx_codec_enc_cfg_t {
@@ -462,7 +471,7 @@ fn hevc_test(server: Addr<server::SessionServer>, id: Vec<String>) {
 
     //HEVC (x265) encoding test
     //for frame_idx in 0..depth {
-        for frame_idx in depth / 2..depth / 2 + 10 {
+        for frame_idx in depth / 2..depth / 2 + 1 {
         println!("Encoding frame {}/{}", frame_idx + 1, depth);
 
         let watch = Instant::now();
