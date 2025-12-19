@@ -37,6 +37,7 @@ use actix::{Actor, Addr};
 use bincode::{Encode, config, encode_to_vec};
 
 use ffmpeg_next as ffmpeg;
+use ffmpeg_next::Packet;
 
 //FITS datasets
 lazy_static! {
@@ -642,26 +643,134 @@ fn ffmpeg_test(server: Addr<server::SessionServer>, id: Vec<String>) {
     // use tune "zerolatency", preset "superfast"
     let codec = ffmpeg::encoder::find(ffmpeg::codec::Id::HEVC).unwrap();
     let mut context = ffmpeg::codec::context::Context::new();
-    let mut encoder = context.encoder().video().unwrap();
-    encoder.set_width(session.width);
-    encoder.set_height(session.height);
+    let mut video = context.encoder().video().unwrap();
 
-    //encoder.set_format(ffmpeg::format::Pixel::YUV420P);
+    video.set_width(session.width);
+    video.set_height(session.height);
 
     // use I444 for composite images otherwise GRAY8
     if session.dataset_id.len() > 1 && is_composite {
-        encoder.set_format(ffmpeg::format::Pixel::YUV444P);
+        video.set_format(ffmpeg::format::Pixel::YUV444P);
     } else {
-        encoder.set_format(ffmpeg::format::Pixel::GRAY8);
+        video.set_format(ffmpeg::format::Pixel::GRAY8);
     }
 
     // set a constant bitrate control mode X265_RC_METHODS_X265_RC_CRF
     //encoder.set_rate_control_mode(ffmpeg::codec::rate::Control::Constant);
     //encoder.set_rate_control_mode(ffmpeg::codec::rate::Control::Variable);
-    encoder.set_bit_rate(target_bitrate * 1000);
+    video.set_bit_rate(target_bitrate * 1000);
 
-    encoder.set_frame_rate(Some(ffmpeg::Rational::new(fps, 1)));
-    encoder.set_time_base(ffmpeg::Rational::new(1, fps));
-    encoder.set_max_b_frames(0); // for low-latency
-    encoder.open_as(codec).unwrap();
+    video.set_frame_rate(Some(ffmpeg::Rational::new(fps, 1)));
+    video.set_time_base(ffmpeg::Rational::new(1, fps));
+    video.set_max_b_frames(0); // for low-latency
+
+    let mut encoder = video.open_as(codec).unwrap();
+
+    //start a video creation event loop
+    session.streaming = true;
+
+    // create a frame
+    let mut frame =
+        ffmpeg::util::frame::Video::new(encoder.format(), encoder.width(), encoder.height());
+
+    //HEVC (x265) encoding test
+    for frame_idx in 0..depth {
+        //for frame_idx in depth / 2..depth / 2 + 1 {
+        println!("Encoding frame {}/{}", frame_idx + 1, depth);
+
+        let watch = Instant::now();
+
+        match fits.get_video_frame(
+            frame_idx,
+            session.width,
+            session.height,
+            &flux,
+            &session.pool,
+        ) {
+            Some(mut y) => {
+                /*unsafe {
+                    (*session.pic).stride[0] = session.width as i32;
+                    (*session.pic).planes[0] = y.as_mut_ptr() as *mut std::os::raw::c_void;
+                    //adaptive bitrate
+                    (*session.param).rc.bitrate = target_bitrate;
+                }*/
+
+                // copy the Y plane data
+                // let data = frame.data_mut(0);
+                for (i, data) in frame.data_mut(0).iter_mut().enumerate() {
+                    *data = y[i];
+                }
+
+                println!(
+                    "Copied frame data: width = {}, height = {}, data size = {}",
+                    frame.width(),
+                    frame.height(),
+                    frame.data(0).len()
+                );
+
+                // set the frame PTS
+                frame.set_pts(Some(frame_idx as i64));
+
+                // encode the frame
+                match encoder.send_frame(&frame) {
+                    Ok(_) => {
+                        // receive the encoded packets
+                        //let mut packet = ffmpeg::util::packet::Packet::empty();
+                        let mut packet = Packet::empty();
+                        while encoder.receive_packet(&mut packet).is_ok() {
+                            println!(
+                                "FFmpeg HEVC video frame prepare/encode time: {:?}, speed {} frames per second, packet size = {}",
+                                watch.elapsed(),
+                                1000000000 / watch.elapsed().as_nanos(),
+                                packet.size()
+                            );
+                            let payload = packet.data();
+
+                            match payload {
+                                Some(payload) => {
+                                    let timestamp = std::time::Instant::now();
+                                    seq_id += 1;
+
+                                    let ws_frame = WsFrame {
+                                        ts: timestamp.elapsed().as_millis() as f32,
+                                        seq_id: seq_id as u32,
+                                        msg_type: 5, //an hevc video frame
+                                        //length: video_frame.len() as u32,
+                                        elapsed: watch.elapsed().as_millis() as f32,
+                                        frame: payload.to_vec(),
+                                    };
+
+                                    match encode_to_vec(&ws_frame, config::legacy()) {
+                                        Ok(bin) => {
+                                            println!("WsFrame binary length: {}", bin.len());
+                                            //println!("{}", bin);
+                                            //ctx.binary(bin);
+                                        }
+                                        Err(err) => println!(
+                                            "error serializing a WebSocket video frame response: {}",
+                                            err
+                                        ),
+                                    }
+
+                                    /*match session.hevc {
+                                        Ok(ref mut file) => {
+                                            let _ = file.write_all(payload);
+                                        }
+                                        Err(_) => {}
+                                    }*/
+                                }
+                                None => {
+                                    println!("No payload in the encoded packet.");
+                                }
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        println!("Error sending frame to encoder: {}", err);
+                    }
+                }
+            }
+            None => {}
+        }
+    }
 }
